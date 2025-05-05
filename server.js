@@ -40,7 +40,7 @@ app.get('/api/qrcode', async (req, res) => {
   
   // Get the current port from the request
   const port = req.socket.localPort;
-  const url = `http://localhost:${port}/control.html?sessionId=${sessionId}`;
+  const url = `https://snake-food-with-console.onrender.com/control.html?sessionId=${sessionId}`;
   console.log('Generating QR code for URL:', url);
   
   try {
