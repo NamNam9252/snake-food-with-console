@@ -315,7 +315,7 @@
       // Check if food is eaten
       if (head.x === food.x && head.y === food.y) {
         score += 10;
-        gameSpeed = Math.max(50, gameSpeed - SPEED_INCREMENT);
+        gameSpeed = Math.max(50, gameSpeed * 0.7);
         clearInterval(gameInterval);
         gameInterval = setInterval(update, gameSpeed);
         generateFood();
