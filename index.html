@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snake Game - Air Console</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 50% 50%, #ffe082 60%, #a5d6a7 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      font-family: 'Comic Sans MS', 'Comic Sans', cursive, Arial, sans-serif;
+    }
+    .game-frame {
+      background: #ffecb3;
+      border: 14px solid #7cb342;
+      border-radius: 40px;
+      box-shadow: 0 8px 32px rgba(60,120,20,0.2);
+      padding: 32px 32px 24px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 32px;
+      min-width: 480px;
+      max-width: 98vw;
+    }
+    .top-bar {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding: 0 8px;
+    }
+    .hearts {
+      display: flex;
+      gap: 6px;
+    }
+    .heart {
+      width: 32px;
+      height: 32px;
+      display: inline-block;
+    }
+    .score-box {
+      background: #fffde7;
+      border-radius: 12px;
+      padding: 6px 18px;
+      font-size: 1.3em;
+      font-weight: bold;
+      color: #388e3c;
+      box-shadow: 0 2px 8px #a5d6a7;
+      margin: 0 10px;
+    }
+    .timer-box {
+      background: #fffde7;
+      border-radius: 12px;
+      padding: 6px 18px;
+      font-size: 1.1em;
+      font-weight: bold;
+      color: #e65100;
+      box-shadow: 0 2px 8px #ffe082;
+      margin: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pause-btn {
+      background: #ff7043;
+      border: none;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      color: #fff;
+      font-size: 1.3em;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 2px 8px #ffcc80;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .pause-btn:active {
+      background: #d84315;
+      transform: scale(0.95);
+    }
+    .game-canvas {
+      background: #ffb74d;
+      border-radius: 24px;
+      box-shadow: 0 4px 24px #ffe082;
+      border: 4px solid #7cb342;
+      display: block;
+    }
+    .status {
+      margin-top: 18px;
+      color: #388e3c;
+      font-size: 1.2em;
+      font-weight: bold;
+      text-shadow: 1px 1px 0 #fffde7;
+      min-height: 32px;
+      text-align: center;
+    }
+    #qrcode {
+      margin: 24px 0 0 0;
+    }
+    #url {
+      margin: 10px;
+      font-size: 0.9em;
+      color: #666;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="game-frame">
+    <div class="top-bar">
+      <div class="hearts" id="hearts"></div>
+      <div class="score-box" id="scoreBox">Score: 0</div>
+      <div class="timer-box" id="timerBox">⏰ <span id="timer">00:00</span></div>
+      <button class="pause-btn" id="pauseBtn" title="Pause">⏸️</button>
+    </div>
+    <canvas id="game-canvas" class="game-canvas" width="400" height="400"></canvas>
+    <div class="status" id="gameStatus">Waiting for phone to start the game...</div>
+  </div>
+  <div id="qrcode">Loading QR code...</div>
+  <div id="url"></div>
+
+  <script>
+    // --- Game constants ---
+    const GRID_SIZE = 20;
+    const GRID_COUNT = 20;
+    const INITIAL_SPEED = 150;
+    const SPEED_INCREMENT = 5;
+    const MAX_LIVES = 3;
+
+    // --- Game state ---
+    let snake = [];
+    let food = {};
+    let direction = 'RIGHT';
+    let nextDirection = 'RIGHT';
+    let gameInterval;
+    let gameSpeed = INITIAL_SPEED;
+    let score = 0;
+    let gameStarted = false;
+    let paused = false;
+    let lives = MAX_LIVES;
+    let timer = 0;
+    let timerInterval;
+    let socket;
+    let networkIp = null;
+    let port = null;
+
+    // --- Canvas setup ---
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const statusDiv = document.getElementById('gameStatus');
+    const scoreBox = document.getElementById('scoreBox');
+    const timerBox = document.getElementById('timer');
+    const heartsDiv = document.getElementById('hearts');
+    const pauseBtn = document.getElementById('pauseBtn');
+
+    // --- Generate sessionId ---
+    const sessionId = crypto.randomUUID();
+    console.log('Generated sessionId:', sessionId);
+
+    // --- Initialize game ---
+    function initGame() {
+      snake = [
+        {x: 5, y: 10},
+        {x: 4, y: 10},
+        {x: 3, y: 10}
+      ];
+      generateFood();
+      direction = 'RIGHT';
+      nextDirection = 'RIGHT';
+      gameSpeed = INITIAL_SPEED;
+      score = 0;
+      lives = MAX_LIVES;
+      timer = 0;
+      updateHearts();
+      updateScore();
+      updateTimer();
+      statusDiv.textContent = 'Game started!';
+      clearInterval(gameInterval);
+      clearInterval(timerInterval);
+      draw();
+    }
+
+    // --- Generate food at random position ---
+    function generateFood() {
+      food = {
+        x: Math.floor(Math.random() * GRID_COUNT),
+        y: Math.floor(Math.random() * GRID_COUNT)
+      };
+      // Make sure food doesn't appear on snake
+      while (snake.some(segment => segment.x === food.x && segment.y === food.y)) {
+        food = {
+          x: Math.floor(Math.random() * GRID_COUNT),
+          y: Math.floor(Math.random() * GRID_COUNT)
+        };
+      }
+    }
+
+    // --- Draw game ---
+    function draw() {
+      // Clear canvas
+      ctx.fillStyle = '#ffb74d';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw food (apple SVG style)
+      drawApple(food.x * GRID_SIZE, food.y * GRID_SIZE);
+
+      // Draw snake
+      snake.forEach((segment, index) => {
+        if (index === 0) {
+          drawSnakeHead(segment.x * GRID_SIZE, segment.y * GRID_SIZE, direction);
+        } else {
+          drawSnakeBody(segment.x * GRID_SIZE, segment.y * GRID_SIZE);
+        }
+      });
+    }
+
+    // --- Draw snake head (cartoon style) ---
+    function drawSnakeHead(x, y, dir) {
+      ctx.save();
+      ctx.translate(x + GRID_SIZE/2, y + GRID_SIZE/2);
+      let angle = 0;
+      if (dir === 'UP') angle = -Math.PI/2;
+      if (dir === 'DOWN') angle = Math.PI/2;
+      if (dir === 'LEFT') angle = Math.PI;
+      ctx.rotate(angle);
+      // Head
+      ctx.fillStyle = '#aeea00';
+      ctx.beginPath();
+      ctx.arc(0, 0, GRID_SIZE/2, 0, 2*Math.PI);
+      ctx.fill();
+      // Eyes
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(-4, -4, 3, 0, 2*Math.PI); ctx.arc(4, -4, 3, 0, 2*Math.PI); ctx.fill();
+      ctx.fillStyle = '#333';
+      ctx.beginPath(); ctx.arc(-4, -4, 1.2, 0, 2*Math.PI); ctx.arc(4, -4, 1.2, 0, 2*Math.PI); ctx.fill();
+      // Smile
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(0, 3, 5, Math.PI*0.1, Math.PI*0.9); ctx.stroke();
+      ctx.restore();
+    }
+    // --- Draw snake body (cartoon style) ---
+    function drawSnakeBody(x, y) {
+      ctx.fillStyle = '#8bc34a';
+      ctx.beginPath();
+      ctx.arc(x + GRID_SIZE/2, y + GRID_SIZE/2, GRID_SIZE/2.1, 0, 2*Math.PI);
+      ctx.fill();
+    }
+    // --- Draw apple (cartoon style) ---
+    function drawApple(x, y) {
+      ctx.save();
+      ctx.translate(x + GRID_SIZE/2, y + GRID_SIZE/2);
+      // Apple body
+      ctx.fillStyle = '#ff1744';
+      ctx.beginPath();
+      ctx.arc(0, 0, GRID_SIZE/2.2, 0, 2*Math.PI);
+      ctx.fill();
+      // Apple shine
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.arc(-3, -3, 3, 0, 2*Math.PI);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // Apple stem
+      ctx.strokeStyle = '#6d4c41';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(0, -12);
+      ctx.stroke();
+      // Apple leaf
+      ctx.fillStyle = '#43a047';
+      ctx.beginPath();
+      ctx.ellipse(3, -10, 3, 1.5, Math.PI/6, 0, 2*Math.PI);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // --- Update game state ---
+    function update() {
+      if (!gameStarted || paused) return;
+      direction = nextDirection;
+      const head = {x: snake[0].x, y: snake[0].y};
+      // Move head
+      switch(direction) {
+        case 'UP': head.y--; break;
+        case 'DOWN': head.y++; break;
+        case 'LEFT': head.x--; break;
+        case 'RIGHT': head.x++; break;
+      }
+      // Check for collisions
+      if (
+        head.x < 0 || head.x >= GRID_COUNT ||
+        head.y < 0 || head.y >= GRID_COUNT ||
+        snake.some(segment => segment.x === head.x && segment.y === head.y)
+      ) {
+        loseLife();
+        return;
+      }
+      // Add new head
+      snake.unshift(head);
+      // Check if food is eaten
+      if (head.x === food.x && head.y === food.y) {
+        score += 10;
+        gameSpeed = Math.max(50, gameSpeed - SPEED_INCREMENT);
+        clearInterval(gameInterval);
+        gameInterval = setInterval(update, gameSpeed);
+        generateFood();
+        updateScore();
+      } else {
+        snake.pop();
+      }
+    }
+
+    // --- Lose a life ---
+    function loseLife() {
+      lives--;
+      updateHearts();
+      if (lives > 0) {
+        // Restart snake
+        snake = [
+          {x: 5, y: 10},
+          {x: 4, y: 10},
+          {x: 3, y: 10}
+        ];
+        direction = 'RIGHT';
+        nextDirection = 'RIGHT';
+        statusDiv.textContent = `Ouch! You have ${lives} lives left.`;
+      } else {
+        gameOver();
+      }
+    }
+
+    // --- Game over ---
+    function gameOver() {
+      clearInterval(gameInterval);
+      clearInterval(timerInterval);
+      gameStarted = false;
+      statusDiv.textContent = `Game Over! Final Score: ${score}. Scan and Start again to play.`;
+    }
+
+    // --- Start game ---
+    function startGame() {
+      if (gameStarted) return;
+      gameStarted = true;
+      paused = false;
+      statusDiv.textContent = `Good luck!`;
+      gameInterval = setInterval(update, gameSpeed);
+      timerInterval = setInterval(() => {
+        timer++;
+        updateTimer();
+      }, 1000);
+    }
+
+    // --- Pause/Resume ---
+    pauseBtn.onclick = () => {
+      if (!gameStarted) return;
+      paused = !paused;
+      pauseBtn.textContent = paused ? '▶️' : '⏸️';
+      statusDiv.textContent = paused ? 'Paused' : 'Resumed!';
+    };
+
+    // --- Update UI ---
+    function updateHearts() {
+      heartsDiv.innerHTML = '';
+      for (let i = 0; i < lives; i++) {
+        heartsDiv.innerHTML += `<span class="heart">❤️</span>`;
+      }
+    }
+    function updateScore() {
+      scoreBox.textContent = `Score: ${score}`;
+    }
+    function updateTimer() {
+      const min = String(Math.floor(timer/60)).padStart(2,'0');
+      const sec = String(timer%60).padStart(2,'0');
+      timerBox.textContent = `${min}:${sec}`;
+    }
+
+    // --- Initialize ---
+    initGame();
+    updateHearts();
+    updateScore();
+    updateTimer();
+
+    // --- Game loop for drawing ---
+    setInterval(draw, 1000 / 60);
+  </script>
+</body>
+</html> 
