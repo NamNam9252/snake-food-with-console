@@ -131,6 +131,7 @@
   <div id="qrcode">Loading QR code...</div>
   <div id="url"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <script>
     // --- Game constants ---
     const GRID_SIZE = 20;
@@ -152,9 +153,6 @@
     let lives = MAX_LIVES;
     let timer = 0;
     let timerInterval;
-    let socket;
-    let networkIp = null;
-    let port = null;
 
     // --- Canvas setup ---
     const canvas = document.getElementById('game-canvas');
@@ -168,6 +166,20 @@
     // --- Generate sessionId ---
     const sessionId = crypto.randomUUID();
     console.log('Generated sessionId:', sessionId);
+
+    // --- Generate QR code for controller ---
+    const controllerUrl = `${window.location.origin}/control.html?sessionId=${sessionId}`;
+    const qrcodeDiv = document.getElementById('qrcode');
+    qrcodeDiv.innerHTML = "";
+    const qr = new QRCode(qrcodeDiv, {
+      text: controllerUrl,
+      width: 180,
+      height: 180,
+      colorDark: "#388e3c",
+      colorLight: "#fffde7",
+      correctLevel: QRCode.CorrectLevel.H
+    });
+    document.getElementById('url').innerHTML = `<p>Or open on your phone: <b>${controllerUrl}</b></p>`;
 
     // --- Initialize game ---
     function initGame() {
