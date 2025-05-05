@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: snake-food-with-console
+    env: node
+    plan: free
+    buildCommand: 'npm install'
+    startCommand: 'npm start'
+    envVars:
+      - key: NODE_VERSION
+        value: 18
+    autoDeploy: true
+    branch: master
+    healthCheckPath: /
+    
+    # Expose port 3000
+    ports:
+      - 3000 
